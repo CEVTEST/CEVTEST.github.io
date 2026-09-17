@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Reparaciones y Métricas</title>
+<style>
+  :root{
+    --bg:#12181f;
+    --panel:#1a232d;
+    --panel2:#202b37;
+    --line:#2c3947;
+    --text:#e7edf3;
+    --muted:#8fa1b3;
+    --accent:#ff7a1a;
+    --accent-dim:#5a3620;
+    --green:#3ecf8e;
+    --yellow:#e8c547;
+    --orange:#ff8c3a;
+    --red:#ef5350;
+    --mono: 'Consolas','SFMono-Regular','Menlo',monospace;
+    --sans: -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.5;
+  }
+  .app{max-width:1180px;margin:0 auto;padding:20px 18px 60px;}
+  header.top{
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:2px solid var(--line); padding-bottom:14px; margin-bottom:18px; flex-wrap:wrap; gap:10px;
+  }
+  header.top h1{font-size:19px; margin:0; font-weight:700; letter-spacing:.2px;}
+  header.top .sub{color:var(--muted); font-size:12.5px;}
+  nav.tabs{display:flex; gap:2px; margin-bottom:20px; border-bottom:1px solid var(--line);}
+  nav.tabs button{
+    background:none; border:none; color:var(--muted); padding:10px 16px;
+    font-size:13.5px; cursor:pointer; border-bottom:2px solid transparent; font-family:var(--sans);
+  }
+  nav.tabs button.active{color:var(--text); border-bottom-color:var(--accent);}
+  nav.tabs button:hover{color:var(--text);}
+  .grid{display:grid; gap:14px;}
+  .grid.cols-4{grid-template-columns:repeat(4,1fr);}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:900px){.grid.cols-4{grid-template-columns:repeat(2,1fr);} .grid.cols-2{grid-template-columns:1fr;}}
+  @media(max-width:560px){.grid.cols-4{grid-template-columns:1fr;}}
+
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px;}
+  .metric{position:relative; overflow:hidden;}
+  .metric .bar{height:4px; border-radius:2px; background:var(--line); margin-top:10px; overflow:hidden;}
+  .metric .bar > i{display:block; height:100%; border-radius:2px;}
+  .metric h3{margin:0 0 2px; font-size:12.5px; color:var(--muted); font-weight:600; text-transform:none;}
+  .metric .val{font-family:var(--mono); font-size:26px; font-weight:700; margin:4px 0 2px;}
+  .metric .target{font-size:11.5px; color:var(--muted); font-family:var(--mono);}
+  .dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px;}
+  .g{background:var(--green);} .y{background:var(--yellow);} .o{background:var(--orange);} .r{background:var(--red);}
+  .metric.state-g{border-left:3px solid var(--green);}
+  .metric.state-y{border-left:3px solid var(--yellow);}
+  .metric.state-o{border-left:3px solid var(--orange);}
+  .metric.state-r{border-left:3px solid var(--red);}
+  .note{font-size:12px; margin-top:8px; padding:8px 10px; border-radius:4px; background:var(--panel2); color:var(--text);}
+  .note.warn{border-left:3px solid var(--orange);}
+  .note.crit{border-left:3px solid var(--red); font-weight:600;}
+
+  form{display:grid; gap:12px; max-width:480px;}
+  label{font-size:12.5px; color:var(--muted); display:block; margin-bottom:4px;}
+  input, select{
+    width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    padding:9px 10px; border-radius:4px; font-size:14px; font-family:var(--sans);
+  }
+  select optgroup{color:var(--muted);}
+  button.primary{
+    background:var(--accent); color:#1a1000; border:none; padding:10px 18px;
+    border-radius:4px; font-weight:700; cursor:pointer; font-size:14px; width:fit-content;
+  }
+  button.primary:hover{opacity:.9;}
+  button.secondary{
+    background:transparent; border:1px solid var(--line); color:var(--muted);
+    padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12.5px;
+  }
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th, td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:600; font-size:11.5px;}
+  td.code{font-family:var(--mono); color:var(--accent);}
+  .empty{color:var(--muted); font-size:13px; padding:20px; text-align:center;}
+  .section-title{font-size:13px; font-weight:700; margin:26px 0 10px; color:var(--text); display:flex; align-items:center; gap:8px;}
+  .section-title::after{content:""; flex:1; height:1px; background:var(--line);}
+  .toast{
+    position:fixed; bottom:18px; right:18px; background:var(--panel2); border:1px solid var(--accent);
+    padding:10px 16px; border-radius:5px; font-size:13px; display:none;
+  }
+  .flexrow{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
+  .tag{display:inline-block; font-family:var(--mono); font-size:11px; background:var(--panel2); border:1px solid var(--line); padding:2px 6px; border-radius:3px; color:var(--muted);}
+
+  .loading-overlay{
+    position:fixed; inset:0; background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    z-index:999;
+  }
+  .spinner{
+    width:38px; height:38px; border-radius:50%;
+    border:3px solid var(--line); border-top-color:var(--accent);
+    animation:spin 0.8s linear infinite;
+  }
+  .loading-text{color:var(--muted); font-size:13px;}
+  @keyframes spin{ to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="app" id="appRoot" style="display:none;">
+  <header class="top">
+    <div>
+      <h1>Control de Reparaciones y Métricas</h1>
+      <div class="sub">NTF · R0078 · R0029 · R0025 — datos compartidos con el equipo</div>
+    </div>
+    <div class="flexrow">
+      <span class="tag" id="totalTag">0 equipos</span>
+      <button class="secondary" id="refreshBtn">Actualizar</button>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="registro" class="active">Registro</button>
+    <button data-tab="dashboard">Dashboard</button>
+    <button data-tab="tecnico">Por técnico</button>
+    <button data-tab="semana">Por semana</button>
+    <button data-tab="usuarios">Usuarios</button>
+  </nav>
+
+  <section id="tab-registro">
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="section-title">Nuevo registro</div>
+        <form id="regForm">
+          <div>
+            <label>ID del equipo</label>
+            <input type="text" id="fEquipoId" required placeholder="IMEI / número de orden">
+          </div>
+          <div>
+            <label>Técnico</label>
+            <select id="fTecnico" required></select>
+          </div>
+          <div>
+            <label>Código</label>
+            <select id="fCodigo" required>
+              <optgroup label="NTF">
+                <option value="R0007">R0007 — NTF</option>
+                <option value="R0039">R0039 — Actualización de SW</option>
+                <option value="R0041">R0041 — Reflash</option>
+                <option value="R0045">R0045 — OOW por fecha</option>
+                <option value="R0050">R0050 — OOW por daño físico / manipulación</option>
+                <option value="R0046">R0046 — OOW por ingreso de líquido</option>
+              </optgroup>
+              <optgroup label="REPARACIONES">
+                <option value="R0012">R0012 — Reparación estándar</option>
+                <option value="R0078">R0078 — Reparación de pantalla</option>
+                <option value="R0029">R0029 — Reparación de PBA</option>
+                <option value="R0025">R0025 — PBA TT reparada</option>
+                <option value="R0005">R0005 — Reensamble</option>
+                <option value="CAMBIO_ACCESORIO">Cambio de accesorio</option>
+                <option value="CAMBIO_EQUIPO">Cambio de equipo</option>
+              </optgroup>
+            </select>
+          </div>
+          <div>
+            <label>Observaciones (opcional)</label>
+            <input type="text" id="fObs" placeholder="—">
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" id="fReingreso" style="width:auto;">
+            <label style="margin:0;" for="fReingreso">Es un reingreso (mismo IMEI ya registrado antes)</label>
+          </div>
+          <button class="primary" type="submit" id="btnGuardar">Guardar registro</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title">Últimos registros</div>
+        <div id="ultimosBox"><div class="empty">Sin registros todavía.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-dashboard" style="display:none;">
+    <div class="grid cols-4" id="dashCards"></div>
+    <div id="dashNotes"></div>
+
+    <div class="section-title">Totales</div>
+    <div class="grid cols-4" id="dashTotals"></div>
+  </section>
+
+  <section id="tab-tecnico" style="display:none;">
+    <div class="flexrow" style="margin-bottom:16px;">
+      <div>
+        <label>Técnico</label>
+        <select id="selTecnico"></select>
+      </div>
+    </div>
+    <div class="grid cols-4" id="tecnicoCards"></div>
+    <div class="section-title">Detalle de códigos</div>
+    <div class="card"><table id="tecnicoTable"><thead></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="tab-semana" style="display:none;">
+    <div class="flexrow" style="margin-bottom:16px;">
+      <div>
+        <label>Semana</label>
+        <select id="selSemana"></select>
+      </div>
+    </div>
+    <div class="grid cols-4" id="semanaCards"></div>
+  </section>
+
+  <section id="tab-usuarios" style="display:none;">
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="section-title">Agregar usuario / técnico</div>
+        <form id="userForm">
+          <div>
+            <label>Nombre</label>
+            <input type="text" id="fNuevoUsuario" required placeholder="Nombre completo">
+          </div>
+          <button class="primary" type="submit">Agregar</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title">Usuarios registrados</div>
+        <div id="usuariosBox"><div class="empty">Sin usuarios todavía.</div></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Cargando datos…</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const NTF_CODES = {
+  R0007:'NTF', R0039:'Actualización de SW', R0041:'Reflash',
+  R0045:'OOW por fecha', R0050:'OOW por daño físico / manipulación', R0046:'OOW por ingreso de líquido'
+};
+const REP_CODES = {
+  R0012:'Reparación estándar', R0078:'Reparación de pantalla', R0029:'Reparación de PBA',
+  R0025:'PBA TT reparada', R0005:'Reensamble', CAMBIO_ACCESORIO:'Cambio de accesorio', CAMBIO_EQUIPO:'Cambio de equipo'
+};
+const ALL_CODES = Object.assign({}, NTF_CODES, REP_CODES);
+
+const METRICS = [
+  {key:'NTF', label:'NTF', max:34.1, min:31.1, base:'total'},
+  {key:'R0078', label:'R0078 — Pantalla', max:28.5, min:25.5, base:'reparaciones'},
+  {key:'R0029', label:'R0029 — PBA', max:16.3, min:13.3, base:'reparaciones'},
+  {key:'R0025', label:'R0025 — PBA TT', max:30, min:27, base:'r0029total'}
+];
+
+let registros = [];
+let usuarios = [];
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxg0Ayi6A4_RuyjjVh8_G91E7aI_oeoOquzjmLllh2j5sMREpS9Apifh0IJhM6Y2C_F/exec';
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display='block';
+  setTimeout(()=>{t.style.display='none';}, 2200);
+}
+
+async function apiGet(action){
+  const res = await fetch(APPS_SCRIPT_URL + '?action=' + action);
+  return res.json();
+}
+async function apiPost(payload){
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+
+async function loadData(){
+  try{
+    registros = await apiGet('getRegistros');
+    registros.forEach(r=>{ r.fecha = String(r.fecha).slice(0,10); });
+  }catch(e){
+    registros = [];
+    toast('No se pudo conectar con el Sheet');
+  }
+  try{
+    usuarios = await apiGet('getUsuarios');
+  }catch(e){
+    usuarios = [];
+  }
+  renderAll();
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'block';
+}
+
+function isoWeek(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getUTCDay()+6)%7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(),0,4));
+  const weekNr = 1 + Math.round(((target - firstThursday)/86400000 - 3 + ((firstThursday.getUTCDay()+6)%7))/7);
+  return target.getUTCFullYear()+'-W'+String(weekNr).padStart(2,'0');
+}
+
+function computeStats(list){
+  const total = list.length;
+  const counts = {};
+  Object.keys(ALL_CODES).forEach(c=>counts[c]=0);
+  list.forEach(r=>{ if(counts[r.codigo]!==undefined) counts[r.codigo]++; });
+
+  const ntfCount = Object.keys(NTF_CODES).reduce((s,c)=>s+counts[c],0);
+  const repCount = total - ntfCount;
+  const r0029total = counts.R0029 + counts.R0025;
+
+  const values = {
+    NTF: total ? ntfCount/total*100 : 0,
+    R0078: repCount ? counts.R0078/repCount*100 : 0,
+    R0029: repCount ? r0029total/repCount*100 : 0,
+    R0025: r0029total ? counts.R0025/r0029total*100 : 0
+  };
+  const bases = {total, reparaciones:repCount, r0029total};
+  const numerators = {NTF:ntfCount, R0078:counts.R0078, R0029:r0029total, R0025:counts.R0025};
+
+  return {total, ntfCount, repCount, counts, r0029total, values, bases, numerators};
+}
+
+function stateFor(m, value){
+  if(value > m.max) return 'r';
+  const mid = m.min + (m.max-m.min)*0.5;
+  if(value >= mid) return 'o';
+  if(value >= m.min) return 'y';
+  return 'g';
+}
+
+function room(m, stats){
+  const base = stats.bases[m.base];
+  const num = stats.numerators[m.key];
+  const allowed = Math.floor(m.max/100*base);
+  return allowed - num; // can be negative
+}
+
+function ntfNeeded(stats){
+  const m = METRICS.find(x=>x.key==='NTF');
+  const targetCount = m.min/100*stats.total;
+  return Math.max(0, Math.ceil(stats.ntfCount - targetCount));
+}
+
+function simulaConversion(stats, destKey, k){
+  const newRep = stats.repCount + k;
+  let newR0078 = stats.counts.R0078;
+  let newR0029total = stats.r0029total;
+  let newR0025 = stats.counts.R0025;
+  if(destKey==='R0078') newR0078 += k;
+  if(destKey==='R0025'){ newR0029total += k; newR0025 += k; }
+  return {newRep, newR0078, newR0029total, newR0025};
+}
+
+function capacidadDestino(stats, destKey){
+  const mR0078 = METRICS.find(x=>x.key==='R0078');
+  const mR0029 = METRICS.find(x=>x.key==='R0029');
+  const mR0025 = METRICS.find(x=>x.key==='R0025');
+  let k = 0;
+  while(k < stats.ntfCount){
+    const sim = simulaConversion(stats, destKey, k+1);
+    let ok = true;
+    if(destKey==='R0078'){
+      const pct = sim.newRep ? sim.newR0078/sim.newRep*100 : 0;
+      if(pct > mR0078.max) ok = false;
+    }
+    if(destKey==='R0025'){
+      const pct29 = sim.newRep ? sim.newR0029total/sim.newRep*100 : 0;
+      const pct25 = sim.newR0029total ? sim.newR0025/sim.newR0029total*100 : 0;
+      if(pct29 > mR0029.max || pct25 > mR0025.max) ok = false;
+    }
+    if(!ok) break;
+    k++;
+  }
+  return k;
+}
+
+function ntfSuggestions(stats){
+  const needed = ntfNeeded(stats);
+  if(needed <= 0) return '';
+  const capR0025 = capacidadDestino(stats, 'R0025');
+  const capR0078 = capacidadDestino(stats, 'R0078');
+  return `
+    <div class="note warn">
+      Necesitas <strong>${needed} caso${needed===1?'':'s'}</strong> menos en NTF para volver a zona segura (≤${METRICS.find(m=>m.key==='NTF').min}%). Repártelos según el diagnóstico real de cada equipo:
+      <ul style="margin:8px 0 0 18px; padding:0;">
+        <li>Reensamble (R0005): sin tope propio — la opción más segura para cubrir lo que falte.</li>
+        <li>Cambio de lógica TT (R0025): cupo disponible sin exceder su indicador: ${capR0025} caso${capR0025===1?'':'s'}.</li>
+        <li>Cambio de pantalla (R0078): cupo disponible sin exceder su indicador: ${capR0078} caso${capR0078===1?'':'s'}.</li>
+      </ul>
+    </div>`;
+}
+
+function neededFillerParaDiluir(numerador, denomActual, targetPct){
+  if(targetPct<=0) return 0;
+  return Math.max(0, Math.ceil(numerador*100/targetPct - denomActual));
+}
+
+function fillerR0029ParaDiluirR0025(stats){
+  const mR0029 = METRICS.find(x=>x.key==='R0029');
+  const mR0025 = METRICS.find(x=>x.key==='R0025');
+  let y = 0;
+  while(y < 10000){
+    const newRep = stats.repCount + y;
+    const newR0029total = stats.r0029total + y;
+    const pct25 = newR0029total ? stats.counts.R0025/newR0029total*100 : 0;
+    const pct29 = newRep ? newR0029total/newRep*100 : 0;
+    if(pct25 <= mR0025.min) break;
+    if(pct29 > mR0029.max) break;
+    y++;
+  }
+  return y;
+}
+
+function metricSuggestions(m, stats){
+  if(m.key==='NTF') return ntfSuggestions(stats);
+  if(m.key==='R0078'){
+    const x = neededFillerParaDiluir(stats.counts.R0078, stats.repCount, m.min);
+    if(x<=0) return '';
+    return `<div class="note warn">Para volver a zona segura, registra al menos <strong>${x} reparación${x===1?'':'es'} más de otro tipo</strong> (R0012, cambio de accesorio/equipo) — eso diluye el porcentaje sin tocar los casos ya hechos. Evita sumar más R0078 mientras tanto.</div>`;
+  }
+  if(m.key==='R0029'){
+    const x = neededFillerParaDiluir(stats.r0029total, stats.repCount, m.min);
+    if(x<=0) return '';
+    return `<div class="note warn">Para volver a zona segura, registra al menos <strong>${x} reparación${x===1?'':'es'} más de otro tipo</strong> (no PBA) — eso diluye el porcentaje. Evita sumar más R0029/R0025 mientras tanto.</div>`;
+  }
+  if(m.key==='R0025'){
+    const y = fillerR0029ParaDiluirR0025(stats);
+    if(y<=0) return '';
+    return `<div class="note warn">Para volver a zona segura, registra al menos <strong>${y} caso${y===1?'':'s'} más de R0029 sin ser R0025</strong> — eso diluye el porcentaje de PBA TT sin arriesgar el tope de R0029.</div>`;
+  }
+  return '';
+}
+
+function metricCard(m, stats){
+  const val = stats.values[m.key];
+  const st = stateFor(m, val);
+  const r = room(m, stats);
+  const pct = Math.min(100, (val/m.max)*100);
+  const colorVar = st==='g'?'var(--green)':st==='y'?'var(--yellow)':st==='o'?'var(--orange)':'var(--red)';
+  let extra = '';
+  if(st==='g') extra = `<div class="note">Meta de cierre de semana: entre ${m.min}% y ${m.max}%. Ahora está por debajo — no es un problema, pero conviene acercarse al rango antes de cerrar.</div>`;
+  if(st==='o') extra = metricSuggestions(m, stats) || `<div class="note warn">Acercándose al máximo. Revisar casos entrantes de este tipo.</div>`;
+  if(st==='r') extra = `<div class="note crit">MÉTRICA EXCEDIDA — REQUIERE ACCIÓN.</div>` + metricSuggestions(m, stats);
+  return `
+    <div class="card metric state-${st}">
+      <h3><span class="dot ${st}"></span>${m.label}</h3>
+      <div class="val">${val.toFixed(1)}%</div>
+      <div class="target">objetivo ≤ ${m.max}% · zona desde ${m.min}%</div>
+      <div class="bar"><i style="width:${pct}%; background:${colorVar};"></i></div>
+      <div class="target" style="margin-top:8px;">${r>=0 ? `cupo restante: ${r} casos` : `excedido por ${Math.abs(r)} casos`}</div>
+      ${extra}
+    </div>`;
+}
+
+function totalsCard(label, value){
+  return `<div class="card metric"><h3>${label}</h3><div class="val">${value}</div></div>`;
+}
+
+function renderDashboard(){
+  const stats = computeStats(registros);
+  document.getElementById('totalTag').textContent = stats.total + ' equipos';
+  document.getElementById('dashCards').innerHTML = METRICS.map(m=>metricCard(m, stats)).join('');
+
+  const risky = METRICS.map(m=>({m, val: stats.values[m.key], st: stateFor(m, stats.values[m.key])}))
+    .filter(x=>x.st==='o'||x.st==='r').sort((a,b)=> (b.val-b.m.max) - (a.val-a.m.max));
+  const notesBox = document.getElementById('dashNotes');
+  if(risky.length){
+    notesBox.innerHTML = `<div class="section-title">Indicadores en riesgo</div>` +
+      risky.map(x=>`<div class="note ${x.st==='r'?'crit':'warn'}">${x.m.label}: ${x.val.toFixed(1)}% ${x.st==='r' ? '(excedido)' : '(zona preventiva)'}</div>`).join('');
+  } else {
+    notesBox.innerHTML = '';
+  }
+
+  const totalsHtml = [
+    totalsCard('Total equipos', stats.total),
+    totalsCard('Total NTF', stats.ntfCount),
+    totalsCard('Total REPARACIONES', stats.repCount),
+    totalsCard('R0012', stats.counts.R0012),
+    totalsCard('R0078', stats.counts.R0078),
+    totalsCard('R0029 (incl. R0025)', stats.r0029total),
+    totalsCard('R0025', stats.counts.R0025),
+    totalsCard('R0005', stats.counts.R0005),
+    totalsCard('Cambio accesorio', stats.counts.CAMBIO_ACCESORIO),
+    totalsCard('Cambio equipo', stats.counts.CAMBIO_EQUIPO),
+    totalsCard('R0007', stats.counts.R0007),
+    totalsCard('R0039', stats.counts.R0039),
+    totalsCard('R0041', stats.counts.R0041),
+    totalsCard('R0045', stats.counts.R0045),
+    totalsCard('R0050', stats.counts.R0050),
+    totalsCard('R0046', stats.counts.R0046),
+  ].join('');
+  document.getElementById('dashTotals').innerHTML = totalsHtml;
+}
+
+function maskImei(v){
+  const s = String(v || '');
+  if(s.length <= 10) return s;
+  const middle = '*'.repeat(s.length - 10);
+  return s.slice(0,6) + middle + s.slice(-4);
+}
+
+function renderUltimos(){
+  const box = document.getElementById('ultimosBox');
+  const last = registros.slice(-8).reverse();
+  if(!last.length){ box.innerHTML = '<div class="empty">Sin registros todavía.</div>'; return; }
+  box.innerHTML = `<table><thead><tr><th>Fecha</th><th>Equipo</th><th>Técnico</th><th>Código</th><th></th></tr></thead><tbody>
+    ${last.map(r=>`<tr><td>${r.fecha}</td><td>${maskImei(r.equipoId)}${(r.reingreso===true||r.reingreso==='TRUE')?' <span class="tag">reingreso</span>':''}</td><td>${r.tecnico}</td><td class="code">${r.codigo}</td><td><button class="secondary" onclick="eliminarRegistro('${r.id}')">Eliminar</button></td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function eliminarRegistro(id){
+  try{
+    await apiPost({action:'deleteRegistro', id});
+    toast('Registro eliminado');
+    await loadData();
+  }catch(e){
+    toast('Error eliminando registro');
+  }
+}
+
+function renderTecnicoSelect(){
+  const sel = document.getElementById('selTecnico');
+  const list = document.getElementById('tecnicosList');
+  const tecnicos = [...new Set(registros.map(r=>r.tecnico))].sort();
+  const prev = sel.value;
+  sel.innerHTML = tecnicos.length ? tecnicos.map(t=>`<option value="${t}">${t}</option>`).join('') : '<option value="">— sin técnicos —</option>';
+  list.innerHTML = tecnicos.map(t=>`<option value="${t}">`).join('');
+  if(tecnicos.includes(prev)) sel.value = prev;
+}
+
+function renderTecnicoView(){
+  const sel = document.getElementById('selTecnico');
+  const tecnico = sel.value;
+  const list = registros.filter(r=>r.tecnico===tecnico);
+  const stats = computeStats(list);
+  document.getElementById('tecnicoCards').innerHTML = [
+    totalsCard('Equipos procesados', stats.total),
+    totalsCard('NTF', stats.ntfCount + ' (' + stats.values.NTF.toFixed(1) + '%)'),
+    totalsCard('Reparaciones', stats.repCount),
+    totalsCard('R0025 / R0029', stats.counts.R0025 + ' / ' + stats.r0029total),
+  ].join('');
+  const tbl = document.getElementById('tecnicoTable');
+  const codes = Object.keys(ALL_CODES);
+  tbl.querySelector('thead').innerHTML = '<tr>' + codes.map(c=>`<th>${c}</th>`).join('') + '</tr>';
+  tbl.querySelector('tbody').innerHTML = '<tr>' + codes.map(c=>`<td>${stats.counts[c]}</td>`).join('') + '</tr>';
+}
+
+function renderSemanaSelect(){
+  const sel = document.getElementById('selSemana');
+  const semanas = [...new Set(registros.map(r=>isoWeek(r.fecha)))].sort().reverse();
+  const prev = sel.value;
+  sel.innerHTML = semanas.length ? semanas.map(s=>`<option value="${s}">${s}</option>`).join('') : '<option value="">— sin datos —</option>';
+  if(semanas.includes(prev)) sel.value = prev;
+}
+
+function renderSemanaView(){
+  const sel = document.getElementById('selSemana');
+  const semana = sel.value;
+  const list = registros.filter(r=>isoWeek(r.fecha)===semana);
+  const stats = computeStats(list);
+  document.getElementById('semanaCards').innerHTML = METRICS.map(m=>metricCard(m, stats)).join('') +
+    totalsCard('Total equipos', stats.total) + totalsCard('Total NTF', stats.ntfCount) + totalsCard('Total reparaciones', stats.repCount);
+}
+
+function renderFormSelects(){
+  const fTecnico = document.getElementById('fTecnico');
+  const prevT = fTecnico.value;
+  const opts = usuarios.length
+    ? usuarios.map(u=>`<option value="${u}">${u}</option>`).join('')
+    : '<option value="" disabled selected>— agrega usuarios en la pestaña Usuarios —</option>';
+  fTecnico.innerHTML = opts;
+  if(usuarios.includes(prevT)) fTecnico.value = prevT;
+}
+
+function renderUsuariosTab(){
+  const box = document.getElementById('usuariosBox');
+  if(!usuarios.length){ box.innerHTML = '<div class="empty">Sin usuarios todavía.</div>'; return; }
+  box.innerHTML = usuarios.map(u=>`
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line);">
+      <span>${u}</span>
+      <button class="secondary" data-user="${u}" onclick="eliminarUsuario('${u.replace(/'/g,"\\'")}')">Eliminar</button>
+    </div>`).join('');
+}
+
+async function eliminarUsuario(nombre){
+  try{
+    await apiPost({action:'deleteUsuario', nombre});
+    await loadData();
+  }catch(e){
+    toast('Error eliminando usuario');
+  }
+}
+
+function safeRender(fn, label, fallbackId){
+  try{
+    fn();
+  }catch(err){
+    console.error('[' + label + ']', err);
+    if(fallbackId){
+      const el = document.getElementById(fallbackId);
+      if(el) el.innerHTML = '<div class="note crit">Error en ' + label + ': ' + (err && err.message ? err.message : err) + '</div>';
+    }
+  }
+}
+
+function renderAll(){
+  safeRender(renderDashboard, 'dashboard', 'dashCards');
+  safeRender(renderUltimos, 'ultimos', 'ultimosBox');
+  safeRender(renderFormSelects, 'formSelects');
+  safeRender(renderUsuariosTab, 'usuariosTab', 'usuariosBox');
+  safeRender(renderTecnicoSelect, 'tecnicoSelect');
+  safeRender(renderTecnicoView, 'tecnicoView', 'tecnicoCards');
+  safeRender(renderSemanaSelect, 'semanaSelect');
+  safeRender(renderSemanaView, 'semanaView', 'semanaCards');
+}
+
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    ['registro','dashboard','tecnico','semana','usuarios'].forEach(t=>{
+      document.getElementById('tab-'+t).style.display = (t===btn.dataset.tab) ? 'block' : 'none';
+    });
+  });
+});
+
+document.getElementById('regForm').addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && e.target.tagName !== 'TEXTAREA'){
+    e.preventDefault();
+  }
+});
+
+document.getElementById('regForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const btn = document.getElementById('btnGuardar');
+  if(btn.disabled) return;
+
+  const equipoId = document.getElementById('fEquipoId').value.trim();
+  const esReingreso = document.getElementById('fReingreso').checked;
+
+  if(!esReingreso && registros.some(r=>String(r.equipoId).trim() === equipoId)){
+    toast('Ese IMEI ya está registrado. Marca "Reingreso" si corresponde.');
+    return;
+  }
+
+  const registro = {
+    id: 'r_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+    equipoId,
+    tecnico: document.getElementById('fTecnico').value.trim(),
+    codigo: document.getElementById('fCodigo').value,
+    obs: document.getElementById('fObs').value.trim(),
+    reingreso: esReingreso,
+    fecha: new Date().toISOString().slice(0,10)
+  };
+
+  btn.disabled = true;
+  btn.textContent = 'Guardando...';
+  try{
+    await apiPost({action:'addRegistro', data:registro});
+    toast('Registro guardado — ' + registro.codigo);
+    e.target.reset();
+    await loadData();
+  }catch(err){
+    toast('Error guardando — revisa la conexión');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'Guardar registro';
+  }
+});
+
+document.getElementById('userForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const input = document.getElementById('fNuevoUsuario');
+  const nombre = input.value.trim();
+  if(!nombre) return;
+  if(usuarios.includes(nombre)){ toast('Ese usuario ya existe'); return; }
+  try{
+    await apiPost({action:'addUsuario', nombre});
+    toast('Usuario agregado — ' + nombre);
+    e.target.reset();
+    await loadData();
+  }catch(err){
+    toast('Error agregando usuario');
+  }
+});
+
+document.getElementById('selTecnico').addEventListener('change', renderTecnicoView);
+document.getElementById('selSemana').addEventListener('change', renderSemanaView);
+document.getElementById('refreshBtn').addEventListener('click', ()=>{
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  loadData();
+});
+
+loadData();
+</script>
+</body>
+</html>
