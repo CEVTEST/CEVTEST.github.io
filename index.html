@@ -93,6 +93,13 @@
   .flexrow{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
   .tag{display:inline-block; font-family:var(--mono); font-size:11px; background:var(--panel2); border:1px solid var(--line); padding:2px 6px; border-radius:3px; color:var(--muted);}
 
+  .stackbar{display:flex; height:26px; border-radius:6px; overflow:hidden; border:1px solid var(--line); background:var(--panel2);}
+  .stackbar > div{height:100%; min-width:2px;}
+  .legend{display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12px; color:var(--text); margin-top:10px;}
+  .legend-item{display:flex; align-items:center; gap:6px; white-space:nowrap;}
+  .legend-dot{width:9px; height:9px; border-radius:50%; display:inline-block; flex:none;}
+  .donut-row{display:flex; gap:20px; align-items:center; flex-wrap:wrap;}
+
   .loading-overlay{
     position:fixed; inset:0; background:var(--bg);
     display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
@@ -182,6 +189,10 @@
   </section>
 
   <section id="tab-dashboard" style="display:none;">
+    <div class="section-title" style="margin-top:0;">Vista general</div>
+    <div class="grid cols-2" id="overviewGrid"></div>
+
+    <div class="section-title">Indicadores</div>
     <div class="grid cols-4" id="dashCards"></div>
     <div id="dashNotes"></div>
 
@@ -344,8 +355,11 @@ function room(m, stats){
 }
 
 function ntfNeeded(stats){
+  // Objetivo: no superar el máximo del rango (m.max). Se calcula la corrección
+  // MÍNIMA necesaria para volver a entrar en la zona buena, para no sobre-corregir
+  // y terminar por debajo de m.min (fuera del rango, hacia el lado bajo).
   const m = METRICS.find(x=>x.key==='NTF');
-  const targetCount = m.min/100*stats.total;
+  const targetCount = m.max/100*stats.total;
   return Math.max(0, Math.ceil(stats.ntfCount - targetCount));
 }
 
@@ -389,7 +403,7 @@ function ntfSuggestions(stats){
   const capR0078 = capacidadDestino(stats, 'R0078');
   return `
     <div class="note warn">
-      Necesitas <strong>${needed} caso${needed===1?'':'s'}</strong> menos en NTF para volver a zona segura (≤${METRICS.find(m=>m.key==='NTF').min}%). Repártelos según el diagnóstico real de cada equipo:
+      Necesitas <strong>${needed} caso${needed===1?'':'s'}</strong> menos en NTF para volver a la zona buena (entre ${METRICS.find(m=>m.key==='NTF').min}% y ${METRICS.find(m=>m.key==='NTF').max}%, sin bajar del mínimo). Repártelos según el diagnóstico real de cada equipo:
       <ul style="margin:8px 0 0 18px; padding:0;">
         <li>Reensamble (R0005): sin tope propio — la opción más segura para cubrir lo que falte.</li>
         <li>Cambio de lógica TT (R0025): cupo disponible sin exceder su indicador: ${capR0025} caso${capR0025===1?'':'s'}.</li>
@@ -399,6 +413,8 @@ function ntfSuggestions(stats){
 }
 
 function neededFillerParaDiluir(numerador, denomActual, targetPct){
+  // targetPct debe ser el MÁXIMO del rango (m.max): la corrección mínima que
+  // trae el valor de vuelta a ≤ max, sin diluir de más y caer por debajo de min.
   if(targetPct<=0) return 0;
   return Math.max(0, Math.ceil(numerador*100/targetPct - denomActual));
 }
@@ -412,7 +428,7 @@ function fillerR0029ParaDiluirR0025(stats){
     const newR0029total = stats.r0029total + y;
     const pct25 = newR0029total ? stats.counts.R0025/newR0029total*100 : 0;
     const pct29 = newRep ? newR0029total/newRep*100 : 0;
-    if(pct25 <= mR0025.min) break;
+    if(pct25 <= mR0025.max) break;
     if(pct29 > mR0029.max) break;
     y++;
   }
@@ -422,12 +438,12 @@ function fillerR0029ParaDiluirR0025(stats){
 function metricSuggestions(m, stats){
   if(m.key==='NTF') return ntfSuggestions(stats);
   if(m.key==='R0078'){
-    const x = neededFillerParaDiluir(stats.counts.R0078, stats.repCount, m.min);
+    const x = neededFillerParaDiluir(stats.counts.R0078, stats.repCount, m.max);
     if(x<=0) return '';
     return `<div class="note warn">Para volver a zona segura, registra al menos <strong>${x} reparación${x===1?'':'es'} más de otro tipo</strong> (R0012, cambio de accesorio/equipo) — eso diluye el porcentaje sin tocar los casos ya hechos. Evita sumar más R0078 mientras tanto.</div>`;
   }
   if(m.key==='R0029'){
-    const x = neededFillerParaDiluir(stats.r0029total, stats.repCount, m.min);
+    const x = neededFillerParaDiluir(stats.r0029total, stats.repCount, m.max);
     if(x<=0) return '';
     return `<div class="note warn">Para volver a zona segura, registra al menos <strong>${x} reparación${x===1?'':'es'} más de otro tipo</strong> (no PBA) — eso diluye el porcentaje. Evita sumar más R0029/R0025 mientras tanto.</div>`;
   }
@@ -464,8 +480,77 @@ function totalsCard(label, value){
   return `<div class="card metric"><h3>${label}</h3><div class="val">${value}</div></div>`;
 }
 
+const REPAIR_PALETTE = {
+  R0078:'#ff7a1a', R0029:'#3ecf8e', R0025:'#5aa9e6', R0012:'#e8c547',
+  R0005:'#c792ea', CAMBIO_ACCESORIO:'#8fa1b3', CAMBIO_EQUIPO:'#ef5350'
+};
+
+// Dona SVG: recibe partes {label,value,color} y dibuja los arcos proporcionales al total.
+function donutChart(parts, size){
+  size = size || 140;
+  const total = parts.reduce((s,p)=>s+p.value,0);
+  const r = size/2 - 14;
+  const c = 2*Math.PI*r;
+  let offset = 0;
+  const circles = parts.filter(p=>p.value>0).map(p=>{
+    const frac = total ? p.value/total : 0;
+    const dash = frac*c;
+    const seg = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${p.color}" stroke-width="20"
+      stroke-dasharray="${dash} ${c-dash}" stroke-dashoffset="${-offset}"
+      transform="rotate(-90 ${size/2} ${size/2})"/>`;
+    offset += dash;
+    return seg;
+  }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--line)" stroke-width="20"/>
+    ${circles}
+    <text x="50%" y="47%" text-anchor="middle" fill="var(--text)" font-size="22" font-family="var(--mono)" font-weight="700">${total}</text>
+    <text x="50%" y="64%" text-anchor="middle" fill="var(--muted)" font-size="10">equipos</text>
+  </svg>`;
+}
+
+// Barra apilada: cada segmento ocupa el % de ancho equivalente a su parte del total.
+function stackedBar(parts, total){
+  if(!total) return '<div class="empty">Sin datos todavía.</div>';
+  return '<div class="stackbar">' + parts.filter(p=>p.value>0).map(p=>{
+    const pct = p.value/total*100;
+    return `<div style="width:${pct}%; background:${p.color};" title="${p.label}: ${p.value} (${pct.toFixed(1)}%)"></div>`;
+  }).join('') + '</div>';
+}
+
+function legendList(parts, total){
+  return '<div class="legend">' + parts.filter(p=>p.value>0).map(p=>{
+    const pct = total ? (p.value/total*100).toFixed(1) : '0.0';
+    return `<div class="legend-item"><span class="legend-dot" style="background:${p.color}"></span>${p.label} — <strong>${p.value}</strong> (${pct}%)</div>`;
+  }).join('') + '</div>';
+}
+
+function renderOverview(stats){
+  const ntfParts = [
+    {label:'Reparaciones', value: stats.repCount, color:'#ff7a1a'},
+    {label:'NTF', value: stats.ntfCount, color:'#ef5350'}
+  ];
+  const repairOrder = ['R0078','R0029','R0025','R0012','R0005','CAMBIO_ACCESORIO','CAMBIO_EQUIPO'];
+  const repairParts = repairOrder.map(k=>({label: ALL_CODES[k]||k, value: stats.counts[k], color: REPAIR_PALETTE[k]}));
+
+  document.getElementById('overviewGrid').innerHTML = `
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">NTF vs Reparaciones</div>
+      <div class="donut-row">
+        ${donutChart(ntfParts)}
+        ${legendList(ntfParts, stats.total)}
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">Espacio que ocupa cada reparación</div>
+      ${stackedBar(repairParts, stats.repCount)}
+      ${legendList(repairParts, stats.repCount)}
+    </div>`;
+}
+
 function renderDashboard(){
   const stats = computeStats(registros);
+  renderOverview(stats);
   document.getElementById('totalTag').textContent = stats.total + ' equipos';
   document.getElementById('dashCards').innerHTML = METRICS.map(m=>metricCard(m, stats)).join('');
 
